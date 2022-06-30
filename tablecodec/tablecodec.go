@@ -63,10 +63,18 @@ func appendTableRecordPrefix(buf []byte, tableID int64) []byte {
 
 // EncodeRowKeyWithHandle encodes the table id, row handle into a kv.Key
 func EncodeRowKeyWithHandle(tableID int64, handle int64) kv.Key {
+
 	buf := make([]byte, 0, RecordRowKeyLen)
 	buf = appendTableRecordPrefix(buf, tableID)
 	buf = codec.EncodeInt(buf, handle)
 	return buf
+}
+
+// 获取前n个字符的前缀;并且截断key
+func interceptPrefix(key *kv.Key, n int) []byte {
+	res := (*key)[:n]
+	*key = (*key)[n:]
+	return res
 }
 
 // DecodeRecordKey decodes the key and gets the tableID, handle.
@@ -98,7 +106,35 @@ func DecodeRecordKey(key kv.Key) (tableID int64, handle int64, err error) {
 	 *   5. understanding the coding rules is a prerequisite for implementing this function,
 	 *      you can learn it in the projection 1-2 course documentation.
 	 */
-	return
+	// 检查key是否合法
+	if len(key) != RecordRowKeyLen {
+		return 0, 0, errInvalidRecordKey
+	}
+	key = key.Clone()
+	// 解析tablePrefix并判断是否合法
+	tablePrefix_ := interceptPrefix(&key, tablePrefixLength)
+	if bytes.Compare(tablePrefix_, tablePrefix) != 0 {
+		return 0, 0, errInvalidRecordKey
+	}
+	// 解析tableID
+	tableIDBuf := interceptPrefix(&key, idLen)
+	_, tableID, err = codec.DecodeInt(tableIDBuf)
+	if err != nil {
+		return 0, 0, errInvalidRecordKey
+	}
+	//解析recordPrefixsep并判断是否合法
+	recordPrefixSep_ := interceptPrefix(&key, recordPrefixSepLength)
+	if bytes.Compare(recordPrefixSep_, recordPrefixSep) != 0 {
+		return 0, 0, errInvalidRecordKey
+	}
+	// 解析handle
+	handleBuf := interceptPrefix(&key, idLen)
+	_, handle, err = codec.DecodeInt(handleBuf)
+	if err != nil {
+		return 0, 0, errInvalidRecordKey
+	}
+
+	return tableID, handle, nil
 }
 
 // appendTableIndexPrefix appends table index prefix  "t[tableID]_i".
@@ -148,6 +184,38 @@ func DecodeIndexKeyPrefix(key kv.Key) (tableID int64, indexID int64, indexValues
 	 *   5. understanding the coding rules is a prerequisite for implementing this function,
 	 *      you can learn it in the projection 1-2 course documentation.
 	 */
+	// 判断key是否合法
+	if len(key) < RecordRowKeyLen {
+		return 0, 0, nil, errInvalidIndexKey.GenWithStack("length mismatch")
+	}
+	key = key.Clone()
+	// 解析tablePrefix并判断是否合法
+	tablePrefix_ := interceptPrefix(&key, tablePrefixLength)
+	if bytes.Compare(tablePrefix_, tablePrefix) != 0 {
+		return 0, 0, nil, errInvalidRecordKey.GenWithStack("tablePrefix mismatch")
+	}
+
+	// 解析tableID
+	tableIDBuf := interceptPrefix(&key, idLen)
+	_, tableID, err = codec.DecodeInt(tableIDBuf)
+	if err != nil {
+		return 0, 0, nil, errInvalidRecordKey.GenWithStack("tableID mismatch")
+	}
+	//解析indexPrefixSep并判断是否合法
+	indexPrefixSep_ := interceptPrefix(&key, recordPrefixSepLength)
+	if bytes.Compare(indexPrefixSep_, indexPrefixSep) != 0 {
+		return 0, 0, nil, errInvalidRecordKey.GenWithStack("indexPrefix mismatch")
+	}
+
+	// 解析indexID
+	indexIDBuf := interceptPrefix(&key, idLen)
+	_, indexID, err = codec.DecodeInt(indexIDBuf)
+	if err != nil {
+		return 0, 0, nil, errInvalidRecordKey.GenWithStack("indexID mismatch")
+	}
+
+	//解析indexValues
+	indexValues = key
 	return tableID, indexID, indexValues, nil
 }
 
