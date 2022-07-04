@@ -98,7 +98,41 @@ func DecodeRecordKey(key kv.Key) (tableID int64, handle int64, err error) {
 	 *   5. understanding the coding rules is a prerequisite for implementing this function,
 	 *      you can learn it in the projection 1-2 course documentation.
 	 */
-	return
+	// step1 check the key
+	if len(key) != RecordRowKeyLen {
+		return 0, 0, errInvalidRecordKey
+	}
+
+	//check tablePrefix
+	tableIDPrefix := getPrefix(key, tablePrefixLength)
+	if bytes.Compare(tableIDPrefix, tablePrefix) != 0 {
+		return 0, 0, errInvalidRecordKey
+	}
+	//decode tableID
+	key = key[tablePrefixLength:]
+	key, tableID, err = codec.DecodeInt(key)
+	if err != nil {
+		return 0, 0, errInvalidRecordKey
+	}
+
+	//check recordPrefix
+	recordIDPrefix := getPrefix(key, recordPrefixSepLength)
+	if bytes.Compare(recordIDPrefix, recordPrefixSep) != 0 {
+		return 0, 0, errInvalidRecordKey
+	}
+
+	key = key[recordPrefixSepLength:]
+	key, handle, err = codec.DecodeInt(key)
+	if err != nil {
+		return 0, 0, errInvalidRecordKey
+	}
+
+	return tableID, handle, nil
+}
+
+func getPrefix(buffer []byte, len int) []byte {
+	buffer = buffer[:len]
+	return buffer
 }
 
 // appendTableIndexPrefix appends table index prefix  "t[tableID]_i".
@@ -148,6 +182,38 @@ func DecodeIndexKeyPrefix(key kv.Key) (tableID int64, indexID int64, indexValues
 	 *   5. understanding the coding rules is a prerequisite for implementing this function,
 	 *      you can learn it in the projection 1-2 course documentation.
 	 */
+
+	//check key
+	if len(key) < prefixLen+idLen {
+		return 0, 0, nil, errInvalidIndexKey
+	}
+	//check tablePrefix
+	tableIDPrefix := getPrefix(key, tablePrefixLength)
+	if bytes.Compare(tableIDPrefix, tablePrefix) != 0 {
+		return 0, 0, nil, errInvalidIndexKey
+	}
+	//decode tableID
+	key = key[tablePrefixLength:]
+	key, tableID, err = codec.DecodeInt(key)
+	if err != nil {
+		return 0, 0, nil, errInvalidIndexKey
+	}
+
+	//check indexPrefixSep
+	indexPrefixTemp := getPrefix(key, recordPrefixSepLength)
+	if bytes.Compare(indexPrefixTemp, indexPrefixSep) != 0 {
+		return 0, 0, nil, errInvalidIndexKey
+	}
+	//decode
+	key = key[recordPrefixSepLength:]
+	key, indexID, err = codec.DecodeInt(key)
+	if err != nil {
+		return 0, 0, nil, errInvalidIndexKey
+	}
+
+	//indexValues
+	indexValues = key
+
 	return tableID, indexID, indexValues, nil
 }
 
